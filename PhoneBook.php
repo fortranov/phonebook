@@ -181,6 +181,60 @@ class PhoneBook {
         return $result;
     }
     
+    public function addRecord($recordData) {
+        if (empty($recordData) || !is_array($recordData)) {
+            return false;
+        }
+        
+        // Проверяем, что у нас есть все необходимые поля
+        $headers = $this->getHeaders();
+        if (empty($headers)) {
+            return false;
+        }
+        
+        // Дополняем запись до нужного количества полей
+        $record = array_pad($recordData, count($headers), '');
+        
+        // Открываем файл для добавления
+        $handle = fopen($this->csvFile, 'a');
+        if ($handle === FALSE) {
+            return false;
+        }
+        
+        // Записываем новую строку
+        $csvLine = implode(';', array_map(function($field) {
+            // Экранируем специальные символы
+            return str_replace([';', "\n", "\r"], ['\\;', '\\n', '\\r'], $field);
+        }, $record));
+        
+        if (fwrite($handle, "\n" . $csvLine) === FALSE) {
+            fclose($handle);
+            return false;
+        }
+        
+        fclose($handle);
+        
+        // Перезагружаем данные
+        $this->loadData();
+        
+        return true;
+    }
+    
+    public function validateRecord($recordData) {
+        $errors = [];
+        
+        // Проверяем обязательные поля (организация и ФИО)
+        if (empty(trim($recordData[0] ?? ''))) {
+            $errors[] = 'Организация обязательна для заполнения';
+        }
+        
+        if (empty(trim($recordData[1] ?? ''))) {
+            $errors[] = 'ФИО обязательно для заполнения';
+        }
+        
+        return $errors;
+    }
+    
     public function saveFile($uploadedFile) {
         if ($uploadedFile['error'] === UPLOAD_ERR_OK) {
             $tmpName = $uploadedFile['tmp_name'];

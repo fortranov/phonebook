@@ -2,6 +2,38 @@
 require_once 'PhoneBook.php';
 
 $phoneBook = new PhoneBook();
+$message = '';
+$messageType = '';
+
+// Обработка добавления новой записи
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add_record') {
+    $recordData = [
+        $_POST['organization'] ?? '',
+        $_POST['name'] ?? '',
+        $_POST['position'] ?? '',
+        $_POST['work_phone'] ?? '',
+        $_POST['city_phone'] ?? '',
+        $_POST['mobile_phone'] ?? '',
+        $_POST['address'] ?? '',
+        $_POST['comment'] ?? ''
+    ];
+    
+    // Валидация данных
+    $errors = $phoneBook->validateRecord($recordData);
+    
+    if (empty($errors)) {
+        if ($phoneBook->addRecord($recordData)) {
+            $message = 'Запись успешно добавлена!';
+            $messageType = 'success';
+        } else {
+            $message = 'Ошибка при добавлении записи.';
+            $messageType = 'error';
+        }
+    } else {
+        $message = 'Ошибки валидации: ' . implode(', ', $errors);
+        $messageType = 'error';
+    }
+}
 
 // Обработка параметров поиска и сортировки
 $search = isset($_GET['search']) ? trim($_GET['search']) : '';
@@ -50,12 +82,19 @@ $lastModified = $phoneBook->getLastModified();
             </nav>
         </header>
 
+        <?php if ($message): ?>
+            <div class="message <?= $messageType ?>">
+                <?= htmlspecialchars($message) ?>
+            </div>
+        <?php endif; ?>
+
         <div class="controls">
             <form method="GET" class="search-form">
                 <div class="search-group">
                     <input type="text" name="search" value="<?= htmlspecialchars($search) ?>" 
                            placeholder="Поиск по всем полям (без учета регистра)..." class="search-input">
                     <button type="submit" class="btn btn-primary">🔍 Поиск</button>
+                    <button type="button" class="btn btn-success" onclick="openAddModal()">➕ Добавить запись</button>
                 </div>
                 
                 <div class="filter-group">
@@ -185,5 +224,136 @@ $lastModified = $phoneBook->getLastModified();
             </div>
         <?php endif; ?>
     </div>
+
+    <!-- Модальное окно для добавления записи -->
+    <div id="addModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>➕ Добавить новую запись</h2>
+                <span class="close" onclick="closeAddModal()">&times;</span>
+            </div>
+            
+            <form method="POST" class="add-form" id="addRecordForm">
+                <input type="hidden" name="action" value="add_record">
+                
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="organization" class="required">Организация:</label>
+                        <input type="text" id="organization" name="organization" required maxlength="100">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="name" class="required">ФИО:</label>
+                        <input type="text" id="name" name="name" required maxlength="100">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="position">Должность:</label>
+                        <input type="text" id="position" name="position" maxlength="100">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="work_phone">Служебный телефон:</label>
+                        <input type="text" id="work_phone" name="work_phone" placeholder="12-34-56" maxlength="20">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="city_phone">Городской телефон:</label>
+                        <input type="text" id="city_phone" name="city_phone" placeholder="8(495)123-45-67" maxlength="20">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="mobile_phone">Мобильный телефон:</label>
+                        <input type="text" id="mobile_phone" name="mobile_phone" placeholder="8-916-123-45-67" maxlength="20">
+                    </div>
+                    
+                    <div class="form-group form-group-full">
+                        <label for="address">Адрес:</label>
+                        <input type="text" id="address" name="address" maxlength="200">
+                    </div>
+                    
+                    <div class="form-group form-group-full">
+                        <label for="comment">Комментарий:</label>
+                        <textarea id="comment" name="comment" rows="3" maxlength="200"></textarea>
+                    </div>
+                </div>
+                
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeAddModal()">Отмена</button>
+                    <button type="submit" class="btn btn-primary">💾 Сохранить</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Функции для управления модальным окном
+        function openAddModal() {
+            document.getElementById('addModal').style.display = 'block';
+            document.body.style.overflow = 'hidden'; // Блокируем прокрутку фона
+        }
+
+        function closeAddModal() {
+            document.getElementById('addModal').style.display = 'none';
+            document.body.style.overflow = 'auto'; // Восстанавливаем прокрутку
+            document.getElementById('addRecordForm').reset(); // Очищаем форму
+        }
+
+        // Закрытие модального окна при клике вне его
+        window.onclick = function(event) {
+            const modal = document.getElementById('addModal');
+            if (event.target === modal) {
+                closeAddModal();
+            }
+        }
+
+        // Закрытие модального окна по Escape
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                closeAddModal();
+            }
+        });
+
+        // Показываем название выбранного файла (из settings.php)
+        const fileInput = document.getElementById('csv_file');
+        if (fileInput) {
+            fileInput.addEventListener('change', function(e) {
+                const label = document.querySelector('.file-label');
+                const fileName = e.target.files[0]?.name || 'Выберите CSV файл';
+                label.innerHTML = '<span class="file-icon">📁</span>' + fileName;
+            });
+        }
+
+        // Автозакрытие сообщений через 5 секунд
+        const messageElement = document.querySelector('.message');
+        if (messageElement) {
+            // Если это сообщение об успехе после добавления записи, закрываем модальное окно
+            if (messageElement.classList.contains('success') && window.location.search.includes('POST')) {
+                closeAddModal();
+            }
+            
+            setTimeout(() => {
+                messageElement.style.opacity = '0';
+                setTimeout(() => {
+                    messageElement.style.display = 'none';
+                }, 300);
+            }, 5000);
+        }
+
+        // Улучшенная валидация формы
+        const addForm = document.getElementById('addRecordForm');
+        if (addForm) {
+            addForm.addEventListener('submit', function(e) {
+                const organization = document.getElementById('organization').value.trim();
+                const name = document.getElementById('name').value.trim();
+                
+                if (!organization || !name) {
+                    e.preventDefault();
+                    alert('Пожалуйста, заполните обязательные поля: Организация и ФИО');
+                    return;
+                }
+            });
+        }
+    </script>
 </body>
 </html>
