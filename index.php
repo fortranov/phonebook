@@ -63,9 +63,6 @@ $lastModified = $phoneBook->getLastModified();
                         <input type="checkbox" name="group" value="1" <?= $groupBy ? 'checked' : '' ?>>
                         Группировать по организации
                     </label>
-                    <div class="info-text">
-                        💡 В обычном режиме одинаковые организации объединяются в таблице
-                    </div>
                 </div>
                 
                 <?php if (!empty($search) || $groupBy): ?>

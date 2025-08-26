@@ -62,8 +62,7 @@ nav {
 }
 
 .nav-link.active {
-    background: linear-gradient(45deg, #667eea, #764ba2);
-    color: white;
+    background: #667eea
 }
 
 /* Кнопки */
@@ -83,7 +82,7 @@ nav {
 }
 
 .btn-primary {
-    background: linear-gradient(45deg, #667eea, #764ba2);
+    background:  #667eea;
     color: white;
 }
 
@@ -202,7 +201,7 @@ nav {
 }
 
 .data-table th {
-    background: linear-gradient(45deg, #667eea, #764ba2);
+    background: #667eea;
     color: white;
     padding: 15px 12px;
     text-align: left;
