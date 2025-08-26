@@ -235,6 +235,71 @@ class PhoneBook {
         return $errors;
     }
     
+    public function getDataPaginated($offset = 0, $limit = 20, $searchQuery = '', $sortColumn = -1, $sortDirection = 'asc') {
+        // Получаем данные с учетом поиска
+        $data = $this->data;
+        if (!empty($searchQuery)) {
+            $data = $this->search($searchQuery);
+        }
+        
+        // Применяем сортировку
+        if ($sortColumn >= 0 && $sortColumn < count($this->headers)) {
+            $data = $this->sortDataArray($data, $sortColumn, $sortDirection);
+        }
+        
+        // Получаем срез данных для пагинации
+        $totalRecords = count($data);
+        $paginatedData = array_slice($data, $offset, $limit);
+        
+        return [
+            'data' => $paginatedData,
+            'total' => $totalRecords,
+            'hasMore' => ($offset + $limit) < $totalRecords,
+            'offset' => $offset,
+            'limit' => $limit
+        ];
+    }
+    
+    public function getDataPaginatedWithRowspans($offset = 0, $limit = 20, $searchQuery = '', $sortColumn = -1, $sortDirection = 'asc') {
+        // Получаем данные с пагинацией
+        $result = $this->getDataPaginated($offset, $limit, $searchQuery, $sortColumn, $sortDirection);
+        
+        // Подготавливаем данные с rowspan для всех данных (не только для текущей порции)
+        // Это нужно для корректного объединения ячеек
+        $allData = $this->data;
+        if (!empty($searchQuery)) {
+            $allData = $this->search($searchQuery);
+        }
+        
+        if ($sortColumn >= 0 && $sortColumn < count($this->headers)) {
+            $allData = $this->sortDataArray($allData, $sortColumn, $sortDirection);
+        }
+        
+        $preparedData = $this->prepareDataWithRowspans($allData);
+        
+        // Получаем только нужную порцию подготовленных данных
+        $paginatedPreparedData = array_slice($preparedData, $offset, $limit);
+        
+        $result['prepared_data'] = $paginatedPreparedData;
+        return $result;
+    }
+    
+    private function sortDataArray($data, $column, $direction = 'asc') {
+        usort($data, function($a, $b) use ($column, $direction) {
+            $valueA = isset($a[$column]) ? $a[$column] : '';
+            $valueB = isset($b[$column]) ? $b[$column] : '';
+            
+            // Используем mb_strtolower для корректной работы с UTF-8 и регистронезависимого сравнения
+            $result = strcmp(
+                mb_strtolower($valueA, 'UTF-8'), 
+                mb_strtolower($valueB, 'UTF-8')
+            );
+            return $direction === 'desc' ? -$result : $result;
+        });
+        
+        return $data;
+    }
+    
     public function saveFile($uploadedFile) {
         if ($uploadedFile['error'] === UPLOAD_ERR_OK) {
             $tmpName = $uploadedFile['tmp_name'];

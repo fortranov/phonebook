@@ -35,30 +35,144 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
+// Обработка AJAX запросов для бесконечного скролла
+if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
+    header('Content-Type: application/json');
+    
+    $offset = isset($_GET['offset']) ? (int)$_GET['offset'] : 0;
+    $limit = isset($_GET['limit']) ? (int)$_GET['limit'] : 20;
+    $search = isset($_GET['search']) ? trim($_GET['search']) : '';
+    $sortColumn = isset($_GET['sort']) ? (int)$_GET['sort'] : -1;
+    $sortDirection = isset($_GET['dir']) && $_GET['dir'] === 'desc' ? 'desc' : 'asc';
+    $groupBy = isset($_GET['group']) && $_GET['group'] === '1';
+    
+    try {
+        if ($groupBy) {
+            // Для группировки возвращаем все данные сразу
+            $data = $phoneBook->getData();
+            if (!empty($search)) {
+                $data = $phoneBook->search($search);
+            }
+            if ($sortColumn >= 0 && $sortColumn < count($phoneBook->getHeaders())) {
+                $data = $phoneBook->sortData($sortColumn, $sortDirection);
+            }
+            $groupedData = $phoneBook->groupByFirstColumn($data);
+            
+            ob_start();
+            foreach ($groupedData as $group => $rows): ?>
+                <div class="group-section">
+                    <h3 class="group-header">🏢 <?= htmlspecialchars($group) ?> (<?= count($rows) ?>)</h3>
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <?php foreach ($phoneBook->getHeaders() as $index => $header): ?>
+                                    <?php if ($index > 0): ?>
+                                        <th>
+                                            <a href="?<?= http_build_query(array_merge($_GET, ['sort' => $index, 'dir' => ($sortColumn == $index && $sortDirection == 'asc') ? 'desc' : 'asc'])) ?>" 
+                                               class="sort-link">
+                                                <?= htmlspecialchars($header) ?>
+                                                <?php if ($sortColumn == $index): ?>
+                                                    <span class="sort-indicator"><?= $sortDirection == 'asc' ? '↑' : '↓' ?></span>
+                                                <?php endif; ?>
+                                            </a>
+                                        </th>
+                                    <?php endif; ?>
+                                <?php endforeach; ?>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($rows as $row): ?>
+                                <tr>
+                                    <?php foreach ($row as $index => $cell): ?>
+                                        <?php if ($index > 0): ?>
+                                            <td><?= !empty($search) ? $phoneBook->highlightSearch($cell, $search) : htmlspecialchars($cell ?? '') ?></td>
+                                        <?php endif; ?>
+                                    <?php endforeach; ?>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+            <?php endforeach;
+            $html = ob_get_clean();
+            
+            echo json_encode([
+                'success' => true,
+                'html' => $html,
+                'hasMore' => false,
+                'total' => count($data),
+                'isGrouped' => true
+            ]);
+        } else {
+            // Обычная пагинация
+            $result = $phoneBook->getDataPaginatedWithRowspans($offset, $limit, $search, $sortColumn, $sortDirection);
+            
+            ob_start();
+            foreach ($result['prepared_data'] as $rowData): ?>
+                <tr>
+                    <?php foreach ($rowData['data'] as $cellIndex => $cell): ?>
+                        <?php if ($cellIndex === 0): ?>
+                            <?php if ($rowData['show_first_cell']): ?>
+                                <td class="merged-cell" <?= $rowData['first_cell_rowspan'] > 1 ? 'rowspan="' . $rowData['first_cell_rowspan'] . '"' : '' ?>>
+                                    <?= !empty($search) ? $phoneBook->highlightSearch($cell, $search) : htmlspecialchars($cell ?? '') ?>
+                                </td>
+                            <?php endif; ?>
+                        <?php else: ?>
+                            <td><?= !empty($search) ? $phoneBook->highlightSearch($cell, $search) : htmlspecialchars($cell ?? '') ?></td>
+                        <?php endif; ?>
+                    <?php endforeach; ?>
+                </tr>
+            <?php endforeach;
+            $html = ob_get_clean();
+            
+            echo json_encode([
+                'success' => true,
+                'html' => $html,
+                'hasMore' => $result['hasMore'],
+                'total' => $result['total'],
+                'offset' => $result['offset'],
+                'limit' => $result['limit'],
+                'isGrouped' => false
+            ]);
+        }
+    } catch (Exception $e) {
+        echo json_encode([
+            'success' => false,
+            'error' => 'Ошибка загрузки данных: ' . $e->getMessage()
+        ]);
+    }
+    exit;
+}
+
 // Обработка параметров поиска и сортировки
 $search = isset($_GET['search']) ? trim($_GET['search']) : '';
 $sortColumn = isset($_GET['sort']) ? (int)$_GET['sort'] : -1;
 $sortDirection = isset($_GET['dir']) && $_GET['dir'] === 'desc' ? 'desc' : 'asc';
 $groupBy = isset($_GET['group']) && $_GET['group'] === '1';
 
-// Получаем данные
+// Получаем данные для начальной загрузки
 $headers = $phoneBook->getHeaders();
-$data = $phoneBook->getData();
+$initialLimit = 20; // Изначально показываем первые 20 записей
 
-// Применяем поиск
-if (!empty($search)) {
-    $data = $phoneBook->search($search);
-}
-
-// Применяем сортировку
-if ($sortColumn >= 0 && $sortColumn < count($headers)) {
-    $data = $phoneBook->sortData($sortColumn, $sortDirection);
-}
-
-// Применяем группировку
-$groupedData = null;
 if ($groupBy) {
+    // Для группировки загружаем все данные
+    $data = $phoneBook->getData();
+    if (!empty($search)) {
+        $data = $phoneBook->search($search);
+    }
+    if ($sortColumn >= 0 && $sortColumn < count($headers)) {
+        $data = $phoneBook->sortData($sortColumn, $sortDirection);
+    }
     $groupedData = $phoneBook->groupByFirstColumn($data);
+    $totalRecords = count($data);
+    $hasMoreData = false;
+} else {
+    // Для обычного режима используем пагинацию
+    $result = $phoneBook->getDataPaginatedWithRowspans(0, $initialLimit, $search, $sortColumn, $sortDirection);
+    $preparedData = $result['prepared_data'];
+    $totalRecords = $result['total'];
+    $hasMoreData = $result['hasMore'];
+    $groupedData = null;
 }
 
 $lastModified = $phoneBook->getLastModified();
@@ -122,13 +236,13 @@ $lastModified = $phoneBook->getLastModified();
             </div>
         <?php endif; ?>
 
-        <div class="table-container">
+        <div class="table-container" id="tableContainer">
             <?php if (empty($headers)): ?>
                 <div class="empty-state">
                     <h3>📋 Справочник пуст</h3>
                     <p>Загрузите CSV файл в <a href="settings.php">настройках</a></p>
                 </div>
-            <?php elseif (empty($data)): ?>
+            <?php elseif ($totalRecords === 0): ?>
                 <div class="empty-state">
                     <h3>🔍 Ничего не найдено</h3>
                     <p>По вашему запросу "<?= htmlspecialchars($search) ?>" ничего не найдено</p>
@@ -171,18 +285,13 @@ $lastModified = $phoneBook->getLastModified();
                     </div>
                 <?php endforeach; ?>
             <?php else: ?>
-                <!-- Обычный вывод с объединением ячеек -->
-                <?php
-                // Подготавливаем данные с информацией о rowspan
-                $preparedData = $phoneBook->prepareDataWithRowspans($data);
-                ?>
-                <table class="data-table">
+                <!-- Обычный вывод с объединением ячеек и бесконечным скроллом -->
+                <table class="data-table" id="mainTable">
                     <thead>
                         <tr>
                             <?php foreach ($headers as $index => $header): ?>
                                 <th>
-                                    <a href="?<?= http_build_query(array_merge($_GET, ['sort' => $index, 'dir' => ($sortColumn == $index && $sortDirection == 'asc') ? 'desc' : 'asc'])) ?>" 
-                                       class="sort-link">
+                                    <a href="javascript:void(0)" onclick="sortTable(<?= $index ?>)" class="sort-link">
                                         <?= htmlspecialchars($header) ?>
                                         <?php if ($sortColumn == $index): ?>
                                             <span class="sort-indicator"><?= $sortDirection == 'asc' ? '↑' : '↓' ?></span>
@@ -192,7 +301,7 @@ $lastModified = $phoneBook->getLastModified();
                             <?php endforeach; ?>
                         </tr>
                     </thead>
-                    <tbody>
+                    <tbody id="tableBody">
                         <?php foreach ($preparedData as $rowData): ?>
                             <tr>
                                 <?php foreach ($rowData['data'] as $cellIndex => $cell): ?>
@@ -212,14 +321,28 @@ $lastModified = $phoneBook->getLastModified();
                         <?php endforeach; ?>
                     </tbody>
                 </table>
+                
+                <!-- Индикатор загрузки -->
+                <div id="loadingIndicator" class="loading-indicator" style="display: none;">
+                    <div class="loading-spinner"></div>
+                    <span>Загрузка данных...</span>
+                </div>
+                
+                <!-- Индикатор конца данных -->
+                <?php if (!$hasMoreData && $totalRecords > 0): ?>
+                    <div id="endIndicator" class="end-indicator">
+                        <span>📋 Все записи загружены</span>
+                    </div>
+                <?php endif; ?>
             <?php endif; ?>
         </div>
 
-        <?php if (!empty($data)): ?>
-            <div class="stats">
-                Показано записей: <strong><?= count($data) ?></strong>
+        <?php if ($totalRecords > 0): ?>
+            <div class="stats" id="statsContainer">
+                <span id="currentCount">Показано записей: <strong><?= $groupBy ? $totalRecords : min($initialLimit, $totalRecords) ?></strong></span>
+                <span id="totalCount">из <strong><?= $totalRecords ?></strong> всего</span>
                 <?php if (!empty($search)): ?>
-                    из <?= count($phoneBook->getData()) ?> всего
+                    <span>(результаты поиска)</span>
                 <?php endif; ?>
             </div>
         <?php endif; ?>
@@ -287,17 +410,155 @@ $lastModified = $phoneBook->getLastModified();
     </div>
 
     <script>
+        // Глобальные переменные для бесконечного скролла
+        let currentOffset = <?= $groupBy ? 0 : $initialLimit ?>;
+        let isLoading = false;
+        let hasMoreData = <?= $hasMoreData ? 'true' : 'false' ?>;
+        let currentTotalRecords = <?= $totalRecords ?>;
+        let currentSearch = '<?= htmlspecialchars($search) ?>';
+        let currentSort = <?= $sortColumn ?>;
+        let currentDir = '<?= $sortDirection ?>';
+        let currentGroup = <?= $groupBy ? 'true' : 'false' ?>;
+
         // Функции для управления модальным окном
         function openAddModal() {
             document.getElementById('addModal').style.display = 'block';
-            document.body.style.overflow = 'hidden'; // Блокируем прокрутку фона
+            document.body.style.overflow = 'hidden';
         }
 
         function closeAddModal() {
             document.getElementById('addModal').style.display = 'none';
-            document.body.style.overflow = 'auto'; // Восстанавливаем прокрутку
-            document.getElementById('addRecordForm').reset(); // Очищаем форму
+            document.body.style.overflow = 'auto';
+            document.getElementById('addRecordForm').reset();
         }
+
+        // Функция сортировки таблицы
+        function sortTable(column) {
+            const newDir = (currentSort === column && currentDir === 'asc') ? 'desc' : 'asc';
+            
+            // Обновляем URL
+            const url = new URL(window.location);
+            url.searchParams.set('sort', column);
+            url.searchParams.set('dir', newDir);
+            
+            window.location.href = url.toString();
+        }
+
+        // Функция загрузки данных через AJAX
+        async function loadMoreData() {
+            if (isLoading || !hasMoreData || currentGroup) {
+                return;
+            }
+
+            isLoading = true;
+            const loadingIndicator = document.getElementById('loadingIndicator');
+            if (loadingIndicator) {
+                loadingIndicator.style.display = 'flex';
+            }
+
+            try {
+                const params = new URLSearchParams({
+                    ajax: '1',
+                    offset: currentOffset,
+                    limit: 20,
+                    search: currentSearch,
+                    sort: currentSort,
+                    dir: currentDir,
+                    group: currentGroup ? '1' : '0'
+                });
+
+                const response = await fetch(`?${params}`);
+                const data = await response.json();
+
+                if (data.success) {
+                    // Добавляем новые строки в таблицу
+                    const tableBody = document.getElementById('tableBody');
+                    if (tableBody && data.html) {
+                        tableBody.insertAdjacentHTML('beforeend', data.html);
+                    }
+
+                    // Обновляем переменные состояния
+                    currentOffset += data.limit;
+                    hasMoreData = data.hasMore;
+
+                    // Обновляем счетчик записей
+                    updateRecordCount();
+
+                    // Показываем индикатор конца данных
+                    if (!hasMoreData) {
+                        showEndIndicator();
+                    }
+                } else {
+                    console.error('Ошибка загрузки данных:', data.error);
+                }
+            } catch (error) {
+                console.error('Ошибка AJAX запроса:', error);
+            } finally {
+                isLoading = false;
+                if (loadingIndicator) {
+                    loadingIndicator.style.display = 'none';
+                }
+            }
+        }
+
+        // Обновление счетчика записей
+        function updateRecordCount() {
+            const currentCountElement = document.getElementById('currentCount');
+            if (currentCountElement) {
+                const tableBody = document.getElementById('tableBody');
+                const currentCount = tableBody ? tableBody.children.length : currentOffset;
+                currentCountElement.innerHTML = `Показано записей: <strong>${currentCount}</strong>`;
+            }
+        }
+
+        // Показать индикатор конца данных
+        function showEndIndicator() {
+            let endIndicator = document.getElementById('endIndicator');
+            if (!endIndicator) {
+                endIndicator = document.createElement('div');
+                endIndicator.id = 'endIndicator';
+                endIndicator.className = 'end-indicator';
+                endIndicator.innerHTML = '<span>📋 Все записи загружены</span>';
+                
+                const tableContainer = document.getElementById('tableContainer');
+                if (tableContainer) {
+                    tableContainer.appendChild(endIndicator);
+                }
+            }
+            endIndicator.style.display = 'block';
+        }
+
+        // Обработчик скролла для бесконечной загрузки
+        function handleScroll() {
+            if (currentGroup || !hasMoreData || isLoading) {
+                return;
+            }
+
+            const tableContainer = document.getElementById('tableContainer');
+            if (!tableContainer) return;
+
+            const containerRect = tableContainer.getBoundingClientRect();
+            const isNearBottom = containerRect.bottom <= window.innerHeight + 200;
+
+            if (isNearBottom) {
+                loadMoreData();
+            }
+        }
+
+        // Инициализация при загрузке страницы
+        document.addEventListener('DOMContentLoaded', function() {
+            // Добавляем обработчик скролла
+            window.addEventListener('scroll', handleScroll);
+            
+            // Добавляем обработчик для поля поиска
+            const searchForm = document.querySelector('.search-form');
+            if (searchForm) {
+                searchForm.addEventListener('submit', function(e) {
+                    // Позволяем обычную отправку формы для поиска
+                    // это перезагрузит страницу с новыми параметрами
+                });
+            }
+        });
 
         // Закрытие модального окна при клике вне его
         window.onclick = function(event) {
@@ -314,24 +575,9 @@ $lastModified = $phoneBook->getLastModified();
             }
         });
 
-        // Показываем название выбранного файла (из settings.php)
-        const fileInput = document.getElementById('csv_file');
-        if (fileInput) {
-            fileInput.addEventListener('change', function(e) {
-                const label = document.querySelector('.file-label');
-                const fileName = e.target.files[0]?.name || 'Выберите CSV файл';
-                label.innerHTML = '<span class="file-icon">📁</span>' + fileName;
-            });
-        }
-
         // Автозакрытие сообщений через 5 секунд
         const messageElement = document.querySelector('.message');
         if (messageElement) {
-            // Если это сообщение об успехе после добавления записи, закрываем модальное окно
-            if (messageElement.classList.contains('success') && window.location.search.includes('POST')) {
-                closeAddModal();
-            }
-            
             setTimeout(() => {
                 messageElement.style.opacity = '0';
                 setTimeout(() => {
