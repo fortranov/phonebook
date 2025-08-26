@@ -35,6 +35,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
+// Обработка редактирования записи
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'edit_record') {
+    $recordIndex = isset($_POST['record_index']) ? (int)$_POST['record_index'] : -1;
+    $recordData = [
+        $_POST['organization'] ?? '',
+        $_POST['name'] ?? '',
+        $_POST['position'] ?? '',
+        $_POST['work_phone'] ?? '',
+        $_POST['city_phone'] ?? '',
+        $_POST['mobile_phone'] ?? '',
+        $_POST['address'] ?? '',
+        $_POST['comment'] ?? ''
+    ];
+    
+    // Валидация данных
+    $errors = $phoneBook->validateRecord($recordData);
+    
+    if (empty($errors)) {
+        if ($phoneBook->updateRecord($recordIndex, $recordData)) {
+            $message = 'Запись успешно обновлена!';
+            $messageType = 'success';
+        } else {
+            $message = 'Ошибка при обновлении записи.';
+            $messageType = 'error';
+        }
+    } else {
+        $message = 'Ошибки валидации: ' . implode(', ', $errors);
+        $messageType = 'error';
+    }
+}
+
+// Обработка удаления записи
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_record') {
+    $recordIndex = isset($_POST['record_index']) ? (int)$_POST['record_index'] : -1;
+    
+    if ($phoneBook->deleteRecord($recordIndex)) {
+        $message = 'Запись успешно удалена!';
+        $messageType = 'success';
+    } else {
+        $message = 'Ошибка при удалении записи.';
+        $messageType = 'error';
+    }
+}
+
 // Обработка AJAX запросов для бесконечного скролла
 if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
     header('Content-Type: application/json');
@@ -108,8 +152,8 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === '1') {
             $result = $phoneBook->getDataPaginatedWithRowspans($offset, $limit, $search, $sortColumn, $sortDirection);
             
             ob_start();
-            foreach ($result['prepared_data'] as $rowData): ?>
-                <tr>
+            foreach ($result['prepared_data'] as $rowIndex => $rowData): ?>
+                <tr data-record-index="<?= $offset + $rowIndex ?>" class="table-row">
                     <?php foreach ($rowData['data'] as $cellIndex => $cell): ?>
                         <?php if ($cellIndex === 0): ?>
                             <?php if ($rowData['show_first_cell']): ?>
@@ -302,8 +346,8 @@ $lastModified = $phoneBook->getLastModified();
                         </tr>
                     </thead>
                     <tbody id="tableBody">
-                        <?php foreach ($preparedData as $rowData): ?>
-                            <tr>
+                        <?php foreach ($preparedData as $rowIndex => $rowData): ?>
+                            <tr data-record-index="<?= $rowIndex ?>" class="table-row">
                                 <?php foreach ($rowData['data'] as $cellIndex => $cell): ?>
                                     <?php if ($cellIndex === 0): ?>
                                         <!-- Первый столбец с возможным объединением -->
@@ -409,6 +453,109 @@ $lastModified = $phoneBook->getLastModified();
         </div>
     </div>
 
+    <!-- Модальное окно для редактирования записи -->
+    <div id="editModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>✏️ Редактировать запись</h2>
+                <span class="close" onclick="closeEditModal()">&times;</span>
+            </div>
+            
+            <form method="POST" class="edit-form" id="editRecordForm">
+                <input type="hidden" name="action" value="edit_record">
+                <input type="hidden" name="record_index" id="editRecordIndex">
+                
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label for="edit_organization" class="required">Организация:</label>
+                        <input type="text" id="edit_organization" name="organization" required maxlength="100">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="edit_name" class="required">ФИО:</label>
+                        <input type="text" id="edit_name" name="name" required maxlength="100">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="edit_position">Должность:</label>
+                        <input type="text" id="edit_position" name="position" maxlength="100">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="edit_work_phone">Служебный телефон:</label>
+                        <input type="text" id="edit_work_phone" name="work_phone" placeholder="12-34-56" maxlength="20">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="edit_city_phone">Городской телефон:</label>
+                        <input type="text" id="edit_city_phone" name="city_phone" placeholder="8(495)123-45-67" maxlength="20">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="edit_mobile_phone">Мобильный телефон:</label>
+                        <input type="text" id="edit_mobile_phone" name="mobile_phone" placeholder="8-916-123-45-67" maxlength="20">
+                    </div>
+                    
+                    <div class="form-group form-group-full">
+                        <label for="edit_address">Адрес:</label>
+                        <input type="text" id="edit_address" name="address" maxlength="200">
+                    </div>
+                    
+                    <div class="form-group form-group-full">
+                        <label for="edit_comment">Комментарий:</label>
+                        <textarea id="edit_comment" name="comment" rows="3" maxlength="200"></textarea>
+                    </div>
+                </div>
+                
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeEditModal()">Отмена</button>
+                    <button type="submit" class="btn btn-primary">💾 Сохранить изменения</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Модальное окно подтверждения удаления -->
+    <div id="deleteModal" class="modal">
+        <div class="modal-content delete-modal">
+            <div class="modal-header delete-header">
+                <h2>🗑️ Подтверждение удаления</h2>
+                <span class="close" onclick="closeDeleteModal()">&times;</span>
+            </div>
+            
+            <div class="delete-content">
+                <div class="warning-icon">⚠️</div>
+                <p class="delete-message">Вы действительно хотите удалить эту запись?</p>
+                <div class="record-preview" id="deleteRecordPreview">
+                    <!-- Здесь будет отображаться информация об удаляемой записи -->
+                </div>
+                <p class="delete-warning">Это действие нельзя отменить!</p>
+            </div>
+            
+            <form method="POST" id="deleteRecordForm">
+                <input type="hidden" name="action" value="delete_record">
+                <input type="hidden" name="record_index" id="deleteRecordIndex">
+                
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closeDeleteModal()">Отмена</button>
+                    <button type="submit" class="btn btn-danger">🗑️ Удалить запись</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Контекстное меню -->
+    <div id="contextMenu" class="context-menu">
+        <div class="context-item" onclick="editRecord()">
+            <span class="context-icon">✏️</span>
+            <span>Редактировать</span>
+        </div>
+        <div class="context-item delete" onclick="deleteRecord()">
+            <span class="context-icon">🗑️</span>
+            <span>Удалить</span>
+        </div>
+    </div>
+
     <script>
         // Глобальные переменные для бесконечного скролла
         let currentOffset = <?= $groupBy ? 0 : $initialLimit ?>;
@@ -419,8 +566,10 @@ $lastModified = $phoneBook->getLastModified();
         let currentSort = <?= $sortColumn ?>;
         let currentDir = '<?= $sortDirection ?>';
         let currentGroup = <?= $groupBy ? 'true' : 'false' ?>;
+        let selectedRecordIndex = -1;
+        let allRecords = <?= json_encode($phoneBook->getData()) ?>;
 
-        // Функции для управления модальным окном
+        // Функции для управления модальными окнами
         function openAddModal() {
             document.getElementById('addModal').style.display = 'block';
             document.body.style.overflow = 'hidden';
@@ -430,6 +579,27 @@ $lastModified = $phoneBook->getLastModified();
             document.getElementById('addModal').style.display = 'none';
             document.body.style.overflow = 'auto';
             document.getElementById('addRecordForm').reset();
+        }
+
+        function openEditModal() {
+            document.getElementById('editModal').style.display = 'block';
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeEditModal() {
+            document.getElementById('editModal').style.display = 'none';
+            document.body.style.overflow = 'auto';
+            document.getElementById('editRecordForm').reset();
+        }
+
+        function openDeleteModal() {
+            document.getElementById('deleteModal').style.display = 'block';
+            document.body.style.overflow = 'hidden';
+        }
+
+        function closeDeleteModal() {
+            document.getElementById('deleteModal').style.display = 'none';
+            document.body.style.overflow = 'auto';
         }
 
         // Функция сортировки таблицы
@@ -545,10 +715,89 @@ $lastModified = $phoneBook->getLastModified();
             }
         }
 
+        // Функции для контекстного меню
+        function showContextMenu(event, recordIndex) {
+            event.preventDefault();
+            selectedRecordIndex = recordIndex;
+            
+            const contextMenu = document.getElementById('contextMenu');
+            contextMenu.style.display = 'block';
+            contextMenu.style.left = event.pageX + 'px';
+            contextMenu.style.top = event.pageY + 'px';
+        }
+
+        function hideContextMenu() {
+            document.getElementById('contextMenu').style.display = 'none';
+        }
+
+        function editRecord() {
+            hideContextMenu();
+            
+            if (selectedRecordIndex >= 0 && selectedRecordIndex < allRecords.length) {
+                const record = allRecords[selectedRecordIndex];
+                
+                // Заполняем форму редактирования
+                document.getElementById('editRecordIndex').value = selectedRecordIndex;
+                document.getElementById('edit_organization').value = record[0] || '';
+                document.getElementById('edit_name').value = record[1] || '';
+                document.getElementById('edit_position').value = record[2] || '';
+                document.getElementById('edit_work_phone').value = record[3] || '';
+                document.getElementById('edit_city_phone').value = record[4] || '';
+                document.getElementById('edit_mobile_phone').value = record[5] || '';
+                document.getElementById('edit_address').value = record[6] || '';
+                document.getElementById('edit_comment').value = record[7] || '';
+                
+                openEditModal();
+            }
+        }
+
+        function deleteRecord() {
+            hideContextMenu();
+            
+            if (selectedRecordIndex >= 0 && selectedRecordIndex < allRecords.length) {
+                const record = allRecords[selectedRecordIndex];
+                
+                // Заполняем информацию об удаляемой записи
+                document.getElementById('deleteRecordIndex').value = selectedRecordIndex;
+                
+                const preview = document.getElementById('deleteRecordPreview');
+                preview.innerHTML = `
+                    <div class="preview-row"><strong>Организация:</strong> ${record[0] || 'Не указано'}</div>
+                    <div class="preview-row"><strong>ФИО:</strong> ${record[1] || 'Не указано'}</div>
+                    <div class="preview-row"><strong>Должность:</strong> ${record[2] || 'Не указано'}</div>
+                `;
+                
+                openDeleteModal();
+            }
+        }
+
         // Инициализация при загрузке страницы
         document.addEventListener('DOMContentLoaded', function() {
             // Добавляем обработчик скролла
             window.addEventListener('scroll', handleScroll);
+            
+            // Добавляем обработчики для контекстного меню
+            document.addEventListener('contextmenu', function(e) {
+                const row = e.target.closest('.table-row');
+                if (row) {
+                    const recordIndex = parseInt(row.getAttribute('data-record-index'));
+                    showContextMenu(e, recordIndex);
+                }
+            });
+            
+            // Скрываем контекстное меню при клике в любом месте
+            document.addEventListener('click', hideContextMenu);
+            
+            // Добавляем обработчик для строк таблицы (выделение)
+            document.addEventListener('click', function(e) {
+                const row = e.target.closest('.table-row');
+                if (row) {
+                    // Убираем выделение с других строк
+                    document.querySelectorAll('.table-row.selected').forEach(r => r.classList.remove('selected'));
+                    // Добавляем выделение к текущей строке
+                    row.classList.add('selected');
+                }
+            });
             
             // Добавляем обработчик для поля поиска
             const searchForm = document.querySelector('.search-form');
@@ -560,18 +809,28 @@ $lastModified = $phoneBook->getLastModified();
             }
         });
 
-        // Закрытие модального окна при клике вне его
+        // Закрытие модальных окон при клике вне их
         window.onclick = function(event) {
-            const modal = document.getElementById('addModal');
-            if (event.target === modal) {
+            const addModal = document.getElementById('addModal');
+            const editModal = document.getElementById('editModal');
+            const deleteModal = document.getElementById('deleteModal');
+            
+            if (event.target === addModal) {
                 closeAddModal();
+            } else if (event.target === editModal) {
+                closeEditModal();
+            } else if (event.target === deleteModal) {
+                closeDeleteModal();
             }
         }
 
-        // Закрытие модального окна по Escape
+        // Закрытие модальных окон по Escape
         document.addEventListener('keydown', function(event) {
             if (event.key === 'Escape') {
                 closeAddModal();
+                closeEditModal();
+                closeDeleteModal();
+                hideContextMenu();
             }
         });
 

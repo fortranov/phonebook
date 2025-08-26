@@ -235,6 +235,77 @@ class PhoneBook {
         return $errors;
     }
     
+    public function deleteRecord($rowIndex) {
+        if ($rowIndex < 0 || $rowIndex >= count($this->data)) {
+            return false;
+        }
+        
+        // Удаляем запись из массива
+        array_splice($this->data, $rowIndex, 1);
+        
+        // Перезаписываем весь CSV файл
+        return $this->saveAllData();
+    }
+    
+    public function updateRecord($rowIndex, $recordData) {
+        if ($rowIndex < 0 || $rowIndex >= count($this->data)) {
+            return false;
+        }
+        
+        // Проверяем, что у нас есть все необходимые поля
+        $headers = $this->getHeaders();
+        if (empty($headers)) {
+            return false;
+        }
+        
+        // Дополняем запись до нужного количества полей
+        $record = array_pad($recordData, count($headers), '');
+        
+        // Обновляем запись в массиве
+        $this->data[$rowIndex] = $record;
+        
+        // Перезаписываем весь CSV файл
+        return $this->saveAllData();
+    }
+    
+    public function getRecordByIndex($rowIndex) {
+        if ($rowIndex < 0 || $rowIndex >= count($this->data)) {
+            return null;
+        }
+        
+        return $this->data[$rowIndex];
+    }
+    
+    private function saveAllData() {
+        $handle = fopen($this->csvFile, 'w');
+        if ($handle === FALSE) {
+            return false;
+        }
+        
+        // Записываем заголовки
+        $csvLine = implode(';', $this->headers);
+        if (fwrite($handle, $csvLine . "\n") === FALSE) {
+            fclose($handle);
+            return false;
+        }
+        
+        // Записываем все данные
+        foreach ($this->data as $row) {
+            $csvLine = implode(';', array_map(function($field) {
+                // Экранируем специальные символы
+                return str_replace([';', "\n", "\r"], ['\\;', '\\n', '\\r'], $field);
+            }, $row));
+            
+            if (fwrite($handle, $csvLine . "\n") === FALSE) {
+                fclose($handle);
+                return false;
+            }
+        }
+        
+        fclose($handle);
+        return true;
+    }
+    
     public function getDataPaginated($offset = 0, $limit = 20, $searchQuery = '', $sortColumn = -1, $sortDirection = 'asc') {
         // Получаем данные с учетом поиска
         $data = $this->data;
