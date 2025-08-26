@@ -54,7 +54,7 @@ $lastModified = $phoneBook->getLastModified();
             <form method="GET" class="search-form">
                 <div class="search-group">
                     <input type="text" name="search" value="<?= htmlspecialchars($search) ?>" 
-                           placeholder="Поиск по всем полям..." class="search-input">
+                           placeholder="Поиск по всем полям (без учета регистра)..." class="search-input">
                     <button type="submit" class="btn btn-primary">🔍 Поиск</button>
                 </div>
                 
@@ -63,6 +63,9 @@ $lastModified = $phoneBook->getLastModified();
                         <input type="checkbox" name="group" value="1" <?= $groupBy ? 'checked' : '' ?>>
                         Группировать по организации
                     </label>
+                    <div class="info-text">
+                        💡 В обычном режиме одинаковые организации объединяются в таблице
+                    </div>
                 </div>
                 
                 <?php if (!empty($search) || $groupBy): ?>
@@ -122,7 +125,7 @@ $lastModified = $phoneBook->getLastModified();
                                     <tr>
                                         <?php foreach ($row as $index => $cell): ?>
                                             <?php if ($index > 0): // Пропускаем первый столбец ?>
-                                                <td><?= htmlspecialchars($cell ?? '') ?></td>
+                                                <td><?= !empty($search) ? $phoneBook->highlightSearch($cell, $search) : htmlspecialchars($cell ?? '') ?></td>
                                             <?php endif; ?>
                                         <?php endforeach; ?>
                                     </tr>
@@ -132,7 +135,11 @@ $lastModified = $phoneBook->getLastModified();
                     </div>
                 <?php endforeach; ?>
             <?php else: ?>
-                <!-- Обычный вывод -->
+                <!-- Обычный вывод с объединением ячеек -->
+                <?php
+                // Подготавливаем данные с информацией о rowspan
+                $preparedData = $phoneBook->prepareDataWithRowspans($data);
+                ?>
                 <table class="data-table">
                     <thead>
                         <tr>
@@ -150,10 +157,20 @@ $lastModified = $phoneBook->getLastModified();
                         </tr>
                     </thead>
                     <tbody>
-                        <?php foreach ($data as $row): ?>
+                        <?php foreach ($preparedData as $rowData): ?>
                             <tr>
-                                <?php foreach ($row as $cell): ?>
-                                    <td><?= htmlspecialchars($cell ?? '') ?></td>
+                                <?php foreach ($rowData['data'] as $cellIndex => $cell): ?>
+                                    <?php if ($cellIndex === 0): ?>
+                                        <!-- Первый столбец с возможным объединением -->
+                                        <?php if ($rowData['show_first_cell']): ?>
+                                            <td class="merged-cell" <?= $rowData['first_cell_rowspan'] > 1 ? 'rowspan="' . $rowData['first_cell_rowspan'] . '"' : '' ?>>
+                                                <?= !empty($search) ? $phoneBook->highlightSearch($cell, $search) : htmlspecialchars($cell ?? '') ?>
+                                            </td>
+                                        <?php endif; ?>
+                                    <?php else: ?>
+                                        <!-- Остальные столбцы -->
+                                        <td><?= !empty($search) ? $phoneBook->highlightSearch($cell, $search) : htmlspecialchars($cell ?? '') ?></td>
+                                    <?php endif; ?>
                                 <?php endforeach; ?>
                             </tr>
                         <?php endforeach; ?>

@@ -49,16 +49,52 @@ class PhoneBook {
             return $this->data;
         }
         
+        // Приводим поисковый запрос к нижнему регистру и разбиваем на слова
+        $query = mb_strtolower(trim($query), 'UTF-8');
+        $queryWords = array_filter(explode(' ', $query)); // Убираем пустые элементы
+        
         $results = [];
         foreach ($this->data as $row) {
-            foreach ($row as $cell) {
-                if (stripos($cell, $query) !== false) {
-                    $results[] = $row;
+            $rowText = mb_strtolower(implode(' ', $row), 'UTF-8');
+            
+            // Проверяем, содержит ли строка все слова из поискового запроса
+            $allWordsFound = true;
+            foreach ($queryWords as $word) {
+                if (mb_strpos($rowText, $word, 0, 'UTF-8') === false) {
+                    $allWordsFound = false;
                     break;
                 }
             }
+            
+            if ($allWordsFound) {
+                $results[] = $row;
+            }
         }
         return $results;
+    }
+    
+    public function highlightSearch($text, $query) {
+        if (empty($query) || empty($text)) {
+            return htmlspecialchars($text ?? '');
+        }
+        
+        $result = htmlspecialchars($text);
+        $queryWords = array_filter(explode(' ', mb_strtolower(trim($query), 'UTF-8')));
+        
+        // Подсвечиваем каждое слово из запроса
+        foreach ($queryWords as $word) {
+            if (mb_strlen($word, 'UTF-8') > 0) {
+                // Используем регулярное выражение для поиска слов без учета регистра
+                $pattern = '/(' . preg_quote($word, '/') . ')/iu';
+                $result = preg_replace(
+                    $pattern, 
+                    '<mark class="search-highlight">$1</mark>', 
+                    $result
+                );
+            }
+        }
+        
+        return $result;
     }
     
     public function sortData($column, $direction = 'asc') {
@@ -68,7 +104,11 @@ class PhoneBook {
             $valueA = isset($a[$column]) ? $a[$column] : '';
             $valueB = isset($b[$column]) ? $b[$column] : '';
             
-            $result = strcasecmp($valueA, $valueB);
+            // Используем mb_strtolower для корректной работы с UTF-8 и регистронезависимого сравнения
+            $result = strcmp(
+                mb_strtolower($valueA, 'UTF-8'), 
+                mb_strtolower($valueB, 'UTF-8')
+            );
             return $direction === 'desc' ? -$result : $result;
         });
         
@@ -88,6 +128,57 @@ class PhoneBook {
         }
         
         return $grouped;
+    }
+    
+    public function prepareDataWithRowspans($data = null) {
+        $dataToProcess = $data ?? $this->data;
+        $result = [];
+        $prevFirstColumn = null;
+        $currentGroupStartIndex = 0;
+        
+        // Сначала сортируем данные по первому столбцу для группировки
+        $sortedData = $dataToProcess;
+        usort($sortedData, function($a, $b) {
+            $valueA = isset($a[0]) ? mb_strtolower($a[0], 'UTF-8') : '';
+            $valueB = isset($b[0]) ? mb_strtolower($b[0], 'UTF-8') : '';
+            return strcmp($valueA, $valueB);
+        });
+        
+        // Проходим по отсортированным данным и определяем rowspan для каждой строки
+        for ($i = 0; $i < count($sortedData); $i++) {
+            $currentFirstColumn = isset($sortedData[$i][0]) ? $sortedData[$i][0] : '';
+            $currentFirstColumnLower = mb_strtolower($currentFirstColumn, 'UTF-8');
+            
+            // Если это новая группа или последняя строка (сравниваем без учета регистра)
+            if ($prevFirstColumn !== null && $currentFirstColumnLower !== mb_strtolower($prevFirstColumn, 'UTF-8')) {
+                // Устанавливаем rowspan для всех строк предыдущей группы
+                $groupSize = $i - $currentGroupStartIndex;
+                for ($j = $currentGroupStartIndex; $j < $i; $j++) {
+                    $result[$j] = [
+                        'data' => $sortedData[$j],
+                        'first_cell_rowspan' => ($j === $currentGroupStartIndex) ? $groupSize : 0,
+                        'show_first_cell' => ($j === $currentGroupStartIndex)
+                    ];
+                }
+                $currentGroupStartIndex = $i;
+            }
+            
+            $prevFirstColumn = $currentFirstColumn;
+        }
+        
+        // Обрабатываем последнюю группу
+        if (!empty($sortedData)) {
+            $groupSize = count($sortedData) - $currentGroupStartIndex;
+            for ($j = $currentGroupStartIndex; $j < count($sortedData); $j++) {
+                $result[$j] = [
+                    'data' => $sortedData[$j],
+                    'first_cell_rowspan' => ($j === $currentGroupStartIndex) ? $groupSize : 0,
+                    'show_first_cell' => ($j === $currentGroupStartIndex)
+                ];
+            }
+        }
+        
+        return $result;
     }
     
     public function saveFile($uploadedFile) {
