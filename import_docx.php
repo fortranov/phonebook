@@ -91,9 +91,10 @@ function parsePhones(string $raw): array {
         if ($gorodskoy === '' && preg_match('/^\(/', $phone)) {
             $gorodskoy = $phone;
         }
-        // Служебный: ровно 6 цифр с двумя дефисами, например 34-56-78
-        elseif ($sluzhebny === '' && preg_match('/^\d{2}-\d{2}-\d{2}$/', $phone)) {
-            $sluzhebny = $phone;
+        // Служебный: 6 цифр с двумя дефисами (NN-NN-NN), возможно после произвольного текста
+        // Например: "34-56-78", "пульт ИЗ: 45-23-78", "ТО: 87-32-45"
+        elseif ($sluzhebny === '' && preg_match('/(\d{2}-\d{2}-\d{2})/', $phone, $m)) {
+            $sluzhebny = $m[1];
         }
     }
 
