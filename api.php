@@ -13,13 +13,16 @@ if ($action === 'search') {
     $limit  = min(200, max(1, (int)($_GET['limit'] ?? 50)));
     $offset = max(0, (int)($_GET['offset'] ?? 0));
 
-    $phoneBook = new PhoneBook();
+    // Собираем данные из всех CSV-файлов в директории проекта
+    $allData = [];
+    foreach (glob(__DIR__ . '/*.csv') as $csvFile) {
+        $pb   = new PhoneBook(basename($csvFile));
+        $rows = empty($q) ? $pb->getData() : $pb->search($q);
+        $allData = array_merge($allData, $rows);
+    }
 
-    $data = empty($q) ? $phoneBook->getData() : $phoneBook->search($q);
-
-    $total   = count($data);
-    $slice   = array_slice($data, $offset, $limit);
-    $headers = $phoneBook->getHeaders(); // [организация, фио, должность, служебный, городской, мобильный, адрес, комментарий]
+    $total   = count($allData);
+    $slice   = array_slice($allData, $offset, $limit);
 
     $records = [];
     foreach ($slice as $row) {
