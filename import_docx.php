@@ -116,7 +116,7 @@ foreach ($rows as $row) {
         $cellTexts[] = getCellText($xpath, $cell);
     }
 
-    $fio      = trim($cellTexts[$fioCol]   ?? '');
+    $fio      = trim(preg_replace('/[\r\n]+/', ' ', $cellTexts[$fioCol] ?? ''));
     $phoneRaw = trim($cellTexts[$phoneCol] ?? '');
 
     if ($fio === '') {
